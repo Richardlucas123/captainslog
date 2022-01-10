@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 	"unicode"
 
@@ -54,17 +53,16 @@ var (
 
 // Parser is a parser for syslog messages.
 type Parser struct {
-	buf                   []byte
-	bufLen                int
-	bufEnd                int
-	cur                   int
-	requireTerminator     bool
-	optionNoHostname      bool
-	optionDontParseJSON   bool
-	optionSanitizeProgram bool
-	optionUseGJSON        bool
-	location              *time.Location
-	msg                   *SyslogMsg
+	buf                 []byte
+	bufLen              int
+	bufEnd              int
+	cur                 int
+	requireTerminator   bool
+	optionNoHostname    bool
+	optionDontParseJSON bool
+	optionUseGJSON      bool
+	location            *time.Location
+	msg                 *SyslogMsg
 }
 
 // NewParser returns a new parser
@@ -92,12 +90,6 @@ func OptionNoHostname(p *Parser) {
 // merge the results with the keys in SyslogMsg.JSONVaues.
 func OptionDontParseJSON(p *Parser) {
 	p.optionDontParseJSON = true
-}
-
-// OptionSanitizeProgram sets the parser to sanitize the syslog program
-// name if needed. Useful for programs such as /usr/bin/someprogram.
-func OptionSanitizeProgram(p *Parser) {
-	p.optionSanitizeProgram = true
 }
 
 // OptionUseGJSONParser uses an alternate parser for CEE JSON content:
@@ -170,13 +162,8 @@ func (p *Parser) parse() error {
 		p.cur = p.cur + offset
 	}
 
-	topts := make([]func(*tagOpts), 0)
-	if p.optionSanitizeProgram {
-		topts = append(topts, TagOptionSanitizeProgram)
-	}
-
 	var msgTag Tag
-	offset, msgTag, err = ParseTag(p.buf[p.cur:], topts...)
+	offset, msgTag, err = ParseTag(p.buf[p.cur:])
 	if err != nil {
 		return err
 	}
@@ -397,12 +384,7 @@ func isAlphaNumeric(r rune) bool {
 // ParseTag will try to find a syslog tag at the beginning of the
 // passed in []byte. It returns the offset from the start of the []byte
 // to the end of the tag string, a captainslog.Tag, and an error.
-func ParseTag(buf []byte, options ...func(*tagOpts)) (int, Tag, error) {
-	var o tagOpts
-	for _, option := range options {
-		option(&o)
-	}
-
+func ParseTag(buf []byte) (int, Tag, error) {
 	var err error
 	var hasPid bool
 	var hasProgram bool
@@ -421,7 +403,7 @@ func ParseTag(buf []byte, options ...func(*tagOpts)) (int, Tag, error) {
 
 	tokenStart := offset
 
-	if !(isAlphaNumeric(rune(buf[tokenStart])) || o.sanitizeProgram && rune(buf[tokenStart]) == '/') {
+	if !isAlphaNumeric(rune(buf[tokenStart])) {
 		return offset, *tag, ErrBadTag
 	}
 
@@ -481,15 +463,10 @@ FoundEndOfTag:
 	strTag := string(buf[tokenStart:tokenEnd])
 	if !hasPid && !hasProgram {
 		if !tag.HasColon {
-			// strTag is correct
+			tag.Program = strTag
 		} else {
-			strTag = string(buf[tokenStart : tokenEnd-1])
+			tag.Program = string(buf[tokenStart : tokenEnd-1])
 		}
-		tag.Program = strTag
-	}
-	if o.sanitizeProgram {
-		items := strings.Split(tag.Program, "/")
-		tag.Program = items[len(items)-1]
 	}
 	return offset, *tag, err
 }
@@ -548,15 +525,6 @@ func ParseCEE(buf []byte) (int, string, error) {
 	offset = tokenEnd
 	cee = string(buf[tokenStart:tokenEnd])
 	return offset, cee, err
-}
-
-type tagOpts struct {
-	sanitizeProgram bool
-}
-
-// TagOptionSanitizeProgram sets the tag options to sanitize the program name
-func TagOptionSanitizeProgram(opts *tagOpts) {
-	opts.sanitizeProgram = true
 }
 
 type contentOpts struct {
